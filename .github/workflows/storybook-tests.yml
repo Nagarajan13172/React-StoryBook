@@ -1,0 +1,33 @@
+name: Storybook tests
+
+# Run the Storybook stories as headless browser tests on every pull request.
+on:
+  pull_request:
+  # Allow manual runs from the Actions tab as well.
+  workflow_dispatch:
+
+jobs:
+  test-stories:
+    name: Run Storybook stories (headless Chromium)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Install only the Chromium browser plus its OS-level dependencies.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Runs the `storybook` Vitest project in headless Chromium (browser mode).
+      - name: Run Storybook story tests
+        run: npm run test:stories

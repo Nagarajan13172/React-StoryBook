@@ -25,3 +25,13 @@ dist-ssr
 
 *storybook.log
 storybook-static
+
+# Frontend testing platform — generated scan artifacts
+analysis.json
+report.html
+
+# Playwright E2E output
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

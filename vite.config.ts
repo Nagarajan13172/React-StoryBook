@@ -33,6 +33,17 @@ export default defineConfig({
         },
         setupFiles: ['.storybook/vitest.setup.ts']
       }
+    }, {
+      // React Testing Library unit tests — run node-side in jsdom, separate
+      // from the real-browser storybook project above.
+      extends: true,
+      test: {
+        name: 'unit',
+        environment: 'jsdom',
+        globals: true,
+        include: ['src/**/*.test.{ts,tsx}'],
+        setupFiles: ['src/test/setup.ts']
+      }
     }]
   }
 });

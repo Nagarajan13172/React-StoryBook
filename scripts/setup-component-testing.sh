@@ -30,6 +30,9 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+# Directory this script lives in — used to copy the story tooling into the target.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 TARGET="${1:-.}"
 cd "$TARGET"
 echo "▶ Setting up component testing in: $(pwd)"
@@ -73,7 +76,16 @@ else
   echo "• Set a11y.test: 'error' manually in your .storybook/preview file to enforce a11y."
 fi
 
-# 5. Add the day-to-day test scripts ----------------------------------------
+# 5. Copy the "every component needs a story" tooling -----------------------
+echo
+echo "▶ Installing story tooling into ./scripts …"
+mkdir -p scripts/lib
+cp "$SCRIPT_DIR/check-stories.mjs"    scripts/check-stories.mjs
+cp "$SCRIPT_DIR/generate-stories.mjs" scripts/generate-stories.mjs
+cp "$SCRIPT_DIR/lib/stories.mjs"      scripts/lib/stories.mjs
+echo "✓ Copied check-stories.mjs, generate-stories.mjs, lib/stories.mjs"
+
+# 6. Add the day-to-day scripts ---------------------------------------------
 node -e '
   const fs = require("fs");
   const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
@@ -81,11 +93,13 @@ node -e '
   if (!p.scripts.test || /no test specified/.test(p.scripts.test)) p.scripts.test = "vitest run";
   p.scripts["test:stories"] = "vitest run --project=storybook";
   p.scripts["test:coverage"] = "vitest run --project=storybook --coverage";
+  p.scripts["stories:check"] = "node scripts/check-stories.mjs";
+  p.scripts["stories:generate"] = "node scripts/generate-stories.mjs";
   fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
-  console.log("✓ Added scripts: test, test:stories, test:coverage");
+  console.log("✓ Added scripts: test, test:stories, test:coverage, stories:check, stories:generate");
 '
 
-# 6. CI workflow (assumes npm — tweak the install/run lines for pnpm/yarn) ---
+# 7. CI workflow (assumes npm — tweak the install/run lines for pnpm/yarn) ---
 mkdir -p .github/workflows
 cat > .github/workflows/storybook-tests.yml <<'YAML'
 name: Storybook tests
@@ -104,6 +118,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Fail the build if any component is missing a story (i.e. is untested).
+      - run: npm run stories:check
       - run: npm run test:stories
 YAML
 echo "✓ Wrote .github/workflows/storybook-tests.yml"
@@ -111,8 +127,10 @@ echo "✓ Wrote .github/workflows/storybook-tests.yml"
 # Done -----------------------------------------------------------------------
 echo
 echo "✅ Component testing is set up. Next:"
-echo "   $RUN storybook       # open the workshop at http://localhost:6006"
-echo "   $RUN test:stories    # run your stories as headless-Chromium tests"
+echo "   $RUN storybook         # open the workshop at http://localhost:6006"
+echo "   $RUN stories:generate  # scaffold a default story for every component missing one"
+echo "   $RUN stories:check     # fail if any component still has no story (runs in CI too)"
+echo "   $RUN test:stories      # run your stories as headless-Chromium tests"
 echo
 echo "Add a *.stories.tsx next to any component to see it appear as both a"
-echo "visual story and an automated test."
+echo "visual story and an automated test. \`stories:check\` keeps that honest."

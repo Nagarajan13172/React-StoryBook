@@ -1,0 +1,7 @@
+{
+  "default": {
+    "import": ["features/steps/**/*.ts", "features/support/**/*.ts"],
+    "format": ["progress-bar", "summary"],
+    "publishQuiet": true
+  }
+}

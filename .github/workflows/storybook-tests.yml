@@ -1,14 +1,14 @@
-name: Storybook tests
+name: Frontend tests
 
-# Run the Storybook stories as headless browser tests on every pull request.
+# Runs the full generated test stack on every pull request:
+# story coverage gate · Storybook stories · RTL unit · Playwright E2E · BDD bindings.
 on:
   pull_request:
-  # Allow manual runs from the Actions tab as well.
   workflow_dispatch:
 
 jobs:
-  test-stories:
-    name: Run Storybook stories (headless Chromium)
+  test:
+    name: Stories · Unit · E2E · BDD
     runs-on: ubuntu-latest
 
     steps:
@@ -24,10 +24,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Install only the Chromium browser plus its OS-level dependencies.
+      # Chromium serves both the Vitest browser project and Playwright/Cucumber.
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      # Runs the `storybook` Vitest project in headless Chromium (browser mode).
-      - name: Run Storybook story tests
+      # The platform's own tests (generators must stay correct on hard shapes).
+      - name: Platform self-test
+        run: npm run test:platform
+
+      # Fail early if any component is missing a story (i.e. is untested).
+      - name: Story coverage gate
+        run: npm run stories:check
+
+      # Storybook stories (render + interaction + a11y) in headless Chromium.
+      - name: Storybook story tests
         run: npm run test:stories
+
+      # React Testing Library unit tests (jsdom `unit` project).
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Playwright E2E — its webServer boots the Vite app automatically.
+      - name: E2E tests
+        run: npm run e2e
+
+      # Validate every Cucumber step is bound (the dry-run can't fail on its own
+      # in cucumber 13, so we grep for undefined/ambiguous and fail explicitly).
+      - name: BDD step-binding gate
+        run: |
+          out=$(npm run --silent bdd:dry 2>&1); echo "$out"
+          echo "$out" | grep -qiE '[0-9]+ (undefined|ambiguous)' && { echo 'FAIL: unbound steps'; exit 1; } || echo 'OK: all steps bound'

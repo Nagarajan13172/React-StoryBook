@@ -14,11 +14,14 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
   },
+  // Multi-browser matrix (area 13). Browser binaries: `npx playwright install
+  // chromium firefox webkit`. Functional E2E (`npm run e2e`) runs all three;
+  // visual snapshots are pinned to chromium (`--project=chromium`) to keep the
+  // committed baseline set small and deterministic.
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    // Add later, then `npx playwright install firefox webkit`:
-    // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    // { name: 'webkit',  use: { ...devices['Desktop Safari'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
   // Boots the real Vite app and waits for it before running specs.
   webServer: {

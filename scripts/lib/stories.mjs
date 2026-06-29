@@ -176,6 +176,8 @@ function placeholderFor(prop, componentName) {
   }
   const literal = t.match(/'([^']*)'/);
   if (/\|/.test(t) && literal) return { value: `'${literal[1]}'` };
+  if (/\[\]\s*$/.test(t) || /^(readonly\s+)?(Array|ReadonlyArray)\s*</.test(t)) return { value: '[]' };
+  if (/^(Record|Map|Partial|Readonly|\{)/.test(t)) return { value: '{}' };
   if (/\bstring\b/.test(t)) return { value: `'${titleCase(prop.name)}'` };
   if (/\bnumber\b/.test(t)) return { value: '0' };
   if (/\bboolean\b/.test(t)) return { value: 'false' };

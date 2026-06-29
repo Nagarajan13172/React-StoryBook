@@ -18,6 +18,8 @@ export const REQUIRED_STATES = [
 const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const STORY_RE = /\.stories\.[jt]sx?$/;
 const TEST_RE = /\.(test|spec)\.[jt]sx?$/;
+// MSW scaffolding lives here; it is the request *mock*, not application API code.
+const MSW_INFRA_RE = /[\\/](?:test[\\/]msw|mocks|__mocks__)[\\/]/;
 
 function walk(dir, acc = []) {
   let entries;
@@ -59,7 +61,9 @@ function detectFramework(root, deps) {
   };
 }
 
-function detectStack(deps) {
+// `visualWired` adds a stronger signal than the dep alone: an actual Playwright
+// visual spec (toHaveScreenshot) means screenshot comparison is really in place.
+function detectStack(deps, { browsers = [], visualWired = false } = {}) {
   const has = (n) => !!deps[n];
   return {
     vitest: has('vitest'),
@@ -69,8 +73,58 @@ function detectStack(deps) {
     cucumber: has('@cucumber/cucumber'),
     playwright: has('playwright') || has('@playwright/test'),
     axe: has('axe-core') || has('@axe-core/playwright') || has('@storybook/addon-a11y'),
-    visual: has('@chromatic-com/storybook') || has('@storybook/test-runner'),
+    // Multi-browser is satisfied once >1 browser is actually configured.
+    multiBrowser: browsers.length > 1,
+    // Visual regression counts as wired when the Chromatic addon / SB test-runner
+    // is installed OR a Playwright visual spec exists in the tree.
+    visual: visualWired || has('@chromatic-com/storybook') || has('@storybook/test-runner'),
   };
+}
+
+// --- browser matrix + visual-regression signals ----------------------------
+// Map a Playwright `devices[...]` / project name to a canonical browser engine.
+const BROWSER_ALIASES = [
+  [/chrom|chrome|edge|msedge/i, 'chromium'],
+  [/firefox|gecko/i, 'firefox'],
+  [/webkit|safari/i, 'webkit'],
+];
+const canonicalBrowser = (s) => BROWSER_ALIASES.find(([re]) => re.test(s))?.[1] ?? s.toLowerCase();
+
+// Strip line + block comments so commented-out `{ name: 'firefox' }` projects
+// in playwright.config.ts are NOT counted as configured browsers.
+const stripComments = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+/** Read the configured browsers from playwright.config.{ts,js}. */
+function playwrightBrowsers(root) {
+  const cfg = ['playwright.config.ts', 'playwright.config.js']
+    .map((f) => path.join(root, f))
+    .find(existsSync);
+  if (!cfg) return [];
+  const src = stripComments(readSafe(cfg));
+  const names = new Set();
+  // project `name: 'chromium' | 'firefox' | 'webkit' | 'Mobile Chrome' …`
+  for (const m of src.matchAll(/name:\s*['"]([^'"]+)['"]/g)) names.add(canonicalBrowser(m[1]));
+  // and any `devices['Desktop Firefox']` reference, which pins an engine
+  for (const m of src.matchAll(/devices\[['"]([^'"]+)['"]\]/g)) names.add(canonicalBrowser(m[1]));
+  return [...names];
+}
+
+/** Read the configured browsers from the vitest browser `instances` in vite/vitest config. */
+function viteBrowsers(root) {
+  const viteCfg = ['vite.config.ts', 'vite.config.js', 'vitest.config.ts', 'vitest.config.js']
+    .map((f) => path.join(root, f))
+    .find(existsSync);
+  if (!viteCfg) return [];
+  const src = stripComments(readSafe(viteCfg));
+  return [...new Set([...src.matchAll(/browser:\s*['"](\w+)['"]/g)].map((m) => canonicalBrowser(m[1])))];
+}
+
+/** True if any committed spec performs a Playwright screenshot comparison.
+ *  Restricted to `toHaveScreenshot` (unambiguously visual) — `toMatchSnapshot`
+ *  is also Vitest's serializer-snapshot API, so matching it false-positives. */
+function hasVisualSpec(files) {
+  return files.some((f) => /\.(spec|test)\.[jt]sx?$/.test(f) && /toHaveScreenshot\s*\(/.test(readSafe(f)));
 }
 
 // --- per-component story state matrix --------------------------------------
@@ -120,6 +174,9 @@ function inventory(files) {
 
   for (const file of files) {
     if (STORY_RE.test(file) || TEST_RE.test(file)) continue;
+    // MSW infrastructure (handlers/server/mocks) mentions "fetch" in prose — it
+    // is the mock, not application API code, so never inventory it as an API file.
+    if (MSW_INFRA_RE.test(file)) continue;
     if (!CODE_EXT.has(path.extname(file))) continue;
     const src = readSafe(file);
     if (!src) continue;
@@ -171,7 +228,7 @@ function deriveGaps(a) {
   if (!a.stack.cucumber) add('bdd', 'low', 'Cucumber.js not set up (BDD scenarios)');
   if (!a.stack.rtl) add('component', 'low', 'React Testing Library not installed (node-side unit tests)');
   if (!a.stack.visual) add('visual', 'medium', 'Visual regression not wired (screenshot comparison)');
-  if (!a.browsers || a.browsers.length < 2) add('browser', 'low', `Only ${a.browsers?.join(', ') || 'one'} browser configured — spec wants Chrome/Firefox/Safari/Edge`);
+  if (!a.stack.multiBrowser) add('browser', 'low', `Only ${a.browsers?.join(', ') || 'one'} browser configured — spec wants Chrome/Firefox/Safari/Edge`);
 
   return gaps;
 }
@@ -210,20 +267,21 @@ export function scan(projectRoot = process.cwd()) {
   const storyFiles = allFiles.filter((f) => STORY_RE.test(f)).length;
   const testFiles = allFiles.filter((f) => TEST_RE.test(f)).length;
 
-  // Browser matrix: read the vitest browser instances if present.
-  const viteCfg = ['vite.config.ts', 'vite.config.js', 'vitest.config.ts']
-    .map((f) => path.join(root, f))
-    .find(existsSync);
-  const browsers = viteCfg
-    ? [...new Set([...readSafe(viteCfg).matchAll(/browser:\s*['"](\w+)['"]/g)].map((m) => m[1]))]
-    : [];
+  // Browser matrix: union of the Playwright projects (e2e) and the vitest
+  // browser `instances` (storybook project), de-duped to canonical engines.
+  const browsers = [...new Set([...playwrightBrowsers(root), ...viteBrowsers(root)])];
+
+  // Visual regression is "wired" once a real screenshot-comparison spec exists.
+  // Playwright specs usually live OUTSIDE src (e2e/, tests/), so scan those too.
+  const specRoots = ['e2e', 'tests', 'test'].map((d) => path.join(root, d)).filter(existsSync);
+  const visualWired = hasVisualSpec([...allFiles, ...specRoots.flatMap((d) => walk(d))]);
 
   const tested = components.filter((c) => c.hasStory || c.hasTest).length;
   const a = {
     scannedAt: null, // stamped by the caller (no Date in shared code)
     root,
     framework: detectFramework(root, deps),
-    stack: detectStack(deps),
+    stack: detectStack(deps, { browsers, visualWired }),
     browsers,
     summary: {
       components: {

@@ -24,9 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Chromium serves both the Vitest browser project and Playwright/Cucumber.
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      # Chromium serves the Vitest browser project + Cucumber; all three engines
+      # are needed for the multi-browser Playwright E2E run.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
 
       # The platform's own tests (generators must stay correct on hard shapes).
       - name: Platform self-test
@@ -44,8 +45,10 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
-      # Playwright E2E — its webServer boots the Vite app automatically.
-      - name: E2E tests
+      # Playwright E2E across chromium + firefox + webkit (its webServer boots the
+      # Vite app). Excludes @visual specs — those need per-platform baselines
+      # (committed darwin baselines won't match Linux CI), so run them separately.
+      - name: E2E tests (multi-browser)
         run: npm run e2e
 
       # Validate every Cucumber step is bound (the dry-run can't fail on its own
@@ -54,3 +57,24 @@ jobs:
         run: |
           out=$(npm run --silent bdd:dry 2>&1); echo "$out"
           echo "$out" | grep -qiE '[0-9]+ (undefined|ambiguous)' && { echo 'FAIL: unbound steps'; exit 1; } || echo 'OK: all steps bound'
+
+  # Visual regression is a SEPARATE, manually-triggered job: it regenerates the
+  # Linux baselines and uploads them as an artifact (committed baselines are
+  # darwin-suffixed, so a Linux PR gate would always "fail"). Promote a baseline
+  # by committing the artifact's PNGs.
+  visual:
+    name: Visual regression (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Generate visual baselines (Linux)
+        run: npm run e2e:visual:update
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-linux
+          path: e2e/visual.spec.ts-snapshots/

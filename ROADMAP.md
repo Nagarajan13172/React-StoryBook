@@ -19,7 +19,8 @@ TextField, SignupCard) doubles as the platform's built-in "example project to sc
 | Scanner + gap report + HTML dashboard (`ftap scan`) | ✅ Phase 1 |
 | Multi-target generator: stories / RTL / Playwright / Cucumber (`ftap generate`) | ✅ Phase 2 |
 | jsdom unit project · Playwright E2E · Cucumber BDD infra + CI | ✅ Phase 2 |
-| Dashboard web app · AI analysis · MSW · multi-browser · routing/auth/perf | 🔲 to build |
+| MSW API mocking · visual regression · responsive · multi-browser | ✅ Phase 3 |
+| Dashboard web app · AI analysis · routing/auth/perf/security coverage | 🔲 to build |
 
 ## Architecture
 
@@ -74,10 +75,32 @@ src/              demo app — the example project the platform scans
   These are tracked for an AST-based scanner upgrade (uses the TS compiler API).
   The `platform/__tests__` self-test guards the shapes that ARE handled.
 
-- [ ] **Phase 3 — Test infrastructure** (testing areas 5,6,7,13)
-  Wire MSW (API mocking), responsive viewports (mobile/tablet/desktop), visual
-  regression baselines (Chromatic/screenshots), and multi-browser
-  (Chromium/Firefox/WebKit) into the Vitest + Playwright configs.
+- [x] **Phase 3 — Test infrastructure** (testing areas 5,6,7,13)
+  - **API/MSW (7):** `msw@2` Node server wired into the jsdom `unit` project
+    (`src/test/msw/*`, `src/test/setup.ts`); example `useUsers` hook +
+    presentational `UserList` + `Users` container, with MSW-backed integration
+    tests (`Users.test.tsx`, `useUsers.test.tsx`).
+  - **Visual + responsive (5,6):** Playwright `toHaveScreenshot` at mobile/
+    tablet/desktop (`e2e/visual.spec.ts`, `@visual`-tagged); baselines committed,
+    `e2e:visual` / `e2e:visual:update` scripts; manual CI job for Linux baselines.
+  - **Multi-browser (13):** `playwright.config.ts` runs chromium + firefox +
+    webkit; `npm run e2e` covers all three (verified 6/6).
+  - **Platform:** scanner detects msw / multi-browser / visual (Phase-3 gaps
+    clear → 0 gaps); new generators `ftap generate --api` (MSW scaffold) and
+    `--visual` (viewport screenshot spec); self-tested in `platform/__tests__`.
+  Verified: 59 vitest ✓ · e2e 6 (×3 browsers) ✓ · visual 3 ✓ · 21 self-tests ✓.
+
+  **Phase 3 — known limitations** (from the adversarial review; high-impact items
+  fixed + self-tested — template-literal URLs → `:params`, depth-correct server
+  imports, no method cross-product, route `:param` substitution + slug de-dup,
+  `animations:'disabled'`, `/api/`-scoped unhandled-request policy, restored
+  story `fetch` stub, `toHaveScreenshot`-only visual detection). Deferred:
+  - The MSW generator detects `fetch`/`axios(...)`/`useSWR` string URLs only; it
+    misses axios instances, `baseURL` + relative paths, and variable URLs.
+  - Visual baselines are platform-suffixed (darwin vs linux) — commit per-OS
+    baselines or use the manual CI job; the generated spec doesn't pin an engine.
+  - Container components (data-fetching) still need a stubbed/`msw-storybook`
+    story to appear in Storybook; only the presentational half auto-generates.
 
 - [ ] **Phase 4 — Dashboard web app** (feature #2)
   Interactive React+Vite UI reading `analysis.json`: tested/untested components,

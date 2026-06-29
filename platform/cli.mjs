@@ -5,8 +5,9 @@
 //
 //   node platform/cli.mjs scan [path]      scan a project → analysis.json + report.html
 //   node platform/cli.mjs report [path]    alias for scan (writes the HTML report)
-//   node platform/cli.mjs generate [path] [--stories --tests --e2e --bdd | --all] [--force]
+//   node platform/cli.mjs generate [path] [--stories --tests --e2e --bdd --api --visual | --all] [--force]
 //                                          scaffold tests for every component
+//                                          (--api: MSW mocks; --visual: viewport screenshots)
 //
 // Later phases add: `dashboard`, `ai`.
 // ---------------------------------------------------------------------------
@@ -19,7 +20,8 @@ import { runGenerators } from './generators/index.mjs';
 const argv = process.argv.slice(2);
 const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'scan';
 const positional = argv.slice(cmd === argv[0] ? 1 : 0).filter((a) => !a.startsWith('-'));
-const flags = new Set(argv.filter((a) => a.startsWith('-')));
+const flags = new Set(argv.filter((a) => a.startsWith('-') && !a.startsWith('--ignore=')));
+const ignore = argv.filter((a) => a.startsWith('--ignore=')).flatMap((a) => a.slice('--ignore='.length).split(',')).filter(Boolean);
 const root = path.resolve(positional[0] ?? '.');
 const has = (f) => flags.has(f);
 
@@ -56,10 +58,12 @@ function runGenerate() {
     tests: all || has('--tests'),
     e2e: all || has('--e2e'),
     bdd: all || has('--bdd'),
+    api: all || has('--api'),
+    visual: all || has('--visual'),
     force: has('--force'),
   };
-  if (!targets.stories && !targets.tests && !targets.e2e && !targets.bdd) {
-    console.error('Pick at least one target: --stories --tests --e2e --bdd  (or --all). Add --force to refresh generated files.');
+  if (!targets.stories && !targets.tests && !targets.e2e && !targets.bdd && !targets.api && !targets.visual) {
+    console.error('Pick at least one target: --stories --tests --e2e --bdd --api --visual  (or --all). Add --force to refresh generated files.');
     process.exit(1);
   }
   console.log(`\n  \x1b[1mftap generate\x1b[0m → ${Object.entries(targets).filter(([k, v]) => v && k !== 'force').map(([k]) => k).join(', ')}\n`);

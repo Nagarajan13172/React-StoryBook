@@ -18,6 +18,7 @@
     "stories:generate": "node scripts/generate-stories.mjs",
     "scan": "node platform/cli.mjs scan",
     "generate": "node platform/cli.mjs generate",
+    "dashboard": "node platform/cli.mjs dashboard",
     "test:platform": "node --test 'platform/__tests__/*.test.mjs'",
     "ftap:selftest": "node --test 'platform/__tests__/*.test.mjs'",
     "e2e": "playwright test --grep-invert @visual",

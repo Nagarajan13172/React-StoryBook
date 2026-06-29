@@ -20,7 +20,8 @@ TextField, SignupCard) doubles as the platform's built-in "example project to sc
 | Multi-target generator: stories / RTL / Playwright / Cucumber (`ftap generate`) | ✅ Phase 2 |
 | jsdom unit project · Playwright E2E · Cucumber BDD infra + CI | ✅ Phase 2 |
 | MSW API mocking · visual regression · responsive · multi-browser | ✅ Phase 3 |
-| Dashboard web app · AI analysis · routing/auth/perf/security coverage | 🔲 to build |
+| Interactive dashboard web app (`ftap dashboard`) | ✅ Phase 4 |
+| AI analysis · routing/auth/perf/security coverage | 🔲 to build |
 
 ## Architecture
 
@@ -33,7 +34,7 @@ platform/
   generators/     story / vitest / playwright / cucumber generators   (Phase 2)
   ai/             Claude-API analysis module                          (Phase 5)
   dashboard/      interactive web UI (React + Vite)                   (Phase 4)
-  cli.mjs         `ftap scan | generate | report`
+  cli.mjs         `ftap scan | generate | report | dashboard`
 scripts/          existing story tooling (reused by the generator phase)
 src/              demo app — the example project the platform scans
 ```
@@ -45,7 +46,7 @@ src/              demo app — the example project the platform scans
 - [x] **Phase 0 — Story coverage seed**
   `stories:check` / `stories:generate` + CI gate. (done earlier)
 
-- [ ] **Phase 1 — Scanner + gap report  ← in progress**
+- [x] **Phase 1 — Scanner + gap report**
   `ftap scan <path>` inspects a project and emits `analysis.json` + `report.html`:
   framework detection, components (props, story coverage, **state-matrix**:
   Default/Loading/Disabled/Error/Empty/Dark/Mobile/Long), hooks, routes, API
@@ -102,9 +103,41 @@ src/              demo app — the example project the platform scans
   - Container components (data-fetching) still need a stubbed/`msw-storybook`
     story to appear in Storybook; only the presentational half auto-generates.
 
-- [ ] **Phase 4 — Dashboard web app** (feature #2)
-  Interactive React+Vite UI reading `analysis.json`: tested/untested components,
-  coverage %, missing scenarios, drill-down per component.
+- [x] **Phase 4 — Dashboard web app** (feature #2)
+  Standalone React 19 + Vite app at `platform/dashboard/`, launched by
+  `ftap dashboard [path] [--build] [--port=NNNN]` — it scans the target, writes
+  `public/analysis.json`, and serves an interactive UI (dev server, or `--build`
+  which builds then serves via `vite preview`). The app fetches `analysis.json`
+  at runtime and renders: summary cards with a coverage progressbar, the testing
+  stack as on/off badges, a searchable/filterable/sortable components table with
+  per-row drill-down (export type, required props, covered/missing states), a
+  severity-sorted gaps list, and an inventory (hooks / API / routes / state).
+  Verified: tsc 0 errors · vite build ✓ · Playwright 33 checks ✓ (11 happy-path +
+  22 hardening against malformed/partial `analysis.json`) · adversarial review
+  17/17 findings fixed, 0 new defects.
+
+  **Phase 4 — resilience** (from the adversarial review; all 22 confirmed findings
+  fixed + self-verified). The dashboard treats `analysis.json` as untrusted:
+  - `normalizeAnalysis()` (`src/normalize.ts`) fills safe defaults for every field
+    at the fetch boundary, and a class `ErrorBoundary` wraps `<App/>` as a backstop
+    — a partial, hand-edited, or different-version file degrades gracefully instead
+    of white-screening (proven with a `{}` payload and a malformed fixture).
+  - Table rows are keyboard-operable (`role=button`, `tabIndex`, Enter/Space,
+    `aria-controls`, `:focus-visible`) and keyed by unique file path so two
+    same-named components expand independently; filter chips are `aria-pressed`
+    toggle buttons; the coverage progressbar has an accessible name + `valuetext`
+    and a clamped 0–100 value; unknown gap severities sort last with a neutral chip.
+  - CLI: `--port`/`FTAP_PORT` keeps the served port and the printed URL in sync;
+    `--build` now actually serves the build; the scanned project root is shown so
+    stale data is visible. Scanner now detects routing tests (`MemoryRouter` etc.)
+    instead of hardcoding `route.tested = false`.
+
+  **Phase 4 — known limitations** (deferred): no list virtualization/pagination, so
+  a project with thousands of components renders every row and re-filters the full
+  array per keystroke; `analysis.json` is written to the shared install's `public/`
+  dir, so two concurrent `ftap dashboard` runs against different projects share that
+  file (mitigated by the header showing the scanned root + `--port` for a second
+  instance, but not isolated per-run).
 
 - [ ] **Phase 5 — AI analysis module** (feature #4)
   Claude API: infer component purpose & expected behaviour, list missing tests,

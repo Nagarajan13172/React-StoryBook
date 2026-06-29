@@ -35,3 +35,7 @@ report.html
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Dashboard generated artifacts
+platform/dashboard/public/analysis.json
+platform/dashboard/dist/

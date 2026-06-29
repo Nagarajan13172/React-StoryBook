@@ -18,6 +18,9 @@ export const REQUIRED_STATES = [
 const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const STORY_RE = /\.stories\.[jt]sx?$/;
 const TEST_RE = /\.(test|spec)\.[jt]sx?$/;
+// Routing test utilities — their presence in a test/spec file means routing is
+// genuinely exercised, so the "no routing tests" gap should not fire.
+const ROUTING_TEST_RE = /\b(MemoryRouter|createMemoryRouter|RouterProvider|createRoutesStub|createBrowserRouter)\b/;
 // MSW scaffolding lives here; it is the request *mock*, not application API code.
 const MSW_INFRA_RE = /[\\/](?:test[\\/]msw|mocks|__mocks__)[\\/]/;
 
@@ -165,6 +168,12 @@ function hasTestFor(dir, name) {
   );
 }
 
+// Project-level signal: does any test/spec file drive a router? Routing tests
+// rarely colocate with the route file, so we look across all test files.
+function hasRoutingTest(files) {
+  return files.some((f) => TEST_RE.test(f) && ROUTING_TEST_RE.test(readSafe(f)));
+}
+
 // --- non-component inventory (hooks / routes / api / state) -----------------
 function inventory(files) {
   const hooks = [];
@@ -260,7 +269,8 @@ export function scan(projectRoot = process.cwd()) {
   const { hooks, routes, api, state } = inventory(allFiles);
   hooks.forEach((h) => (h.hasTest = hasTestFor(path.dirname(h.file), path.basename(h.file).replace(/\.\w+$/, ''))));
   hooks.forEach((h) => (h.file = path.relative(root, h.file)));
-  routes.forEach((r) => ((r.tested = false), (r.file = path.relative(root, r.file))));
+  const routingTested = hasRoutingTest(allFiles);
+  routes.forEach((r) => ((r.tested = routingTested), (r.file = path.relative(root, r.file))));
   api.forEach((x) => (x.file = path.relative(root, x.file)));
   state.forEach((s) => (s.file = path.relative(root, s.file)));
 

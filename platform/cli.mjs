@@ -5,15 +5,20 @@
 //
 //   node platform/cli.mjs scan [path]      scan a project → analysis.json + report.html
 //   node platform/cli.mjs report [path]    alias for scan (writes the HTML report)
-//   node platform/cli.mjs generate [path] [--stories --tests --e2e --bdd --api --visual | --all] [--force]
+//   node platform/cli.mjs generate [path]
+//        [--stories --tests --e2e --bdd --api --visual --routing --auth --table --perf --security | --all] [--force]
 //                                          scaffold tests for every component
-//                                          (--api: MSW mocks; --visual: viewport screenshots)
+//                                          (--api: MSW mocks; --visual: viewport screenshots;
+//                                           --routing/--auth/--table/--perf/--security: Phase-6 scaffolds)
 //   node platform/cli.mjs dashboard [path] [--build] [--port=NNNN]
 //                                          scan, then serve the interactive dashboard
 //                                          (--build: build then serve via vite preview;
 //                                           --port: override the default 4317)
-//
-// Later phases add: `ai`.
+//   node platform/cli.mjs ai [path] [--model=ID] [--only=A,B] [--max=N]
+//                              [--max-tokens=N] [--no-ai] [--md] [--json] [--no-cache]
+//                                          AI test-gap analysis per component
+//                                          (uses ANTHROPIC_API_KEY; heuristic fallback
+//                                           with no key or --no-ai)
 // ---------------------------------------------------------------------------
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -22,6 +27,7 @@ import path from 'node:path';
 import { scan } from './core/scan.mjs';
 import { renderHtml } from './core/report.mjs';
 import { runGenerators } from './generators/index.mjs';
+import { analyzeProject, toMarkdown, toSuggestionList } from './ai/analyze.mjs';
 
 const DASHBOARD_DIR = fileURLToPath(new URL('./dashboard', import.meta.url));
 
@@ -34,6 +40,11 @@ const portArg = argv.find((a) => a.startsWith('--port='));
 const dashboardPort = Number(portArg?.slice('--port='.length)) || Number(process.env.FTAP_PORT) || 4317;
 const root = path.resolve(positional[0] ?? '.');
 const has = (f) => flags.has(f);
+// Read a `--key=value` flag (returns undefined when absent).
+const opt = (key) => {
+  const hit = argv.find((a) => a.startsWith(`--${key}=`));
+  return hit ? hit.slice(key.length + 3) : undefined;
+};
 
 function runScan() {
   const a = scan(root);
@@ -70,10 +81,16 @@ function runGenerate() {
     bdd: all || has('--bdd'),
     api: all || has('--api'),
     visual: all || has('--visual'),
+    routing: all || has('--routing'),
+    auth: all || has('--auth'),
+    table: all || has('--table'),
+    perf: all || has('--perf'),
+    security: all || has('--security'),
     force: has('--force'),
   };
-  if (!targets.stories && !targets.tests && !targets.e2e && !targets.bdd && !targets.api && !targets.visual) {
-    console.error('Pick at least one target: --stories --tests --e2e --bdd --api --visual  (or --all). Add --force to refresh generated files.');
+  const picked = Object.entries(targets).some(([k, v]) => v && k !== 'force');
+  if (!picked) {
+    console.error('Pick at least one target: --stories --tests --e2e --bdd --api --visual --routing --auth --table --perf --security  (or --all). Add --force to refresh generated files.');
     process.exit(1);
   }
   console.log(`\n  \x1b[1mftap generate\x1b[0m → ${Object.entries(targets).filter(([k, v]) => v && k !== 'force').map(([k]) => k).join(', ')}\n`);
@@ -119,6 +136,60 @@ function runDashboard() {
   }
 }
 
+async function runAi() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const useAI = !has('--no-ai') && !!apiKey;
+  const asJson = has('--json');
+  const sev = { high: '\x1b[31m●\x1b[0m', medium: '\x1b[33m●\x1b[0m', low: '\x1b[90m●\x1b[0m' };
+  // In --json mode stdout must be clean JSON; banners go to stderr.
+  const note = (msg) => (asJson ? console.error(msg) : console.log(msg));
+
+  note(`\n  \x1b[1mftap ai\x1b[0m — test-gap analysis`);
+  if (!useAI) {
+    const why = has('--no-ai') ? '--no-ai set' : 'no ANTHROPIC_API_KEY';
+    note(`  \x1b[33mheuristic mode\x1b[0m (${why}) — set ANTHROPIC_API_KEY for Claude-powered analysis.`);
+  }
+
+  const result = await analyzeProject(root, {
+    apiKey,
+    model: opt('model'),
+    only: opt('only')?.split(',').map((s) => s.trim()).filter(Boolean),
+    max: opt('max') ? Number(opt('max')) : undefined,
+    maxTokens: opt('max-tokens') ? Number(opt('max-tokens')) : undefined,
+    ignore,
+    useAI: !has('--no-ai'),
+    cacheDir: has('--no-cache') ? undefined : path.join(root, '.ftap', 'ai-cache'),
+    cache: has('--no-cache') ? { get: () => null, set: () => {} } : undefined,
+  });
+
+  if (has('--json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(`  ${'─'.repeat(46)}`);
+  console.log(`  Mode: ${result.mode}${result.model ? ` · ${result.model}` : ''} · ${result.componentCount} component(s)\n`);
+  for (const a of result.analyses) {
+    console.log(`  ${sev[a.overallRisk] ?? '○'} \x1b[1m${a.name}\x1b[0m — ${a.purpose}`);
+    for (const t of (a.missingTests ?? []).slice(0, 6)) {
+      console.log(`       ${sev[t.priority] ?? '○'} [${t.kind}] ${t.title}`);
+    }
+    if (a.error) console.log(`       \x1b[33m! ${a.error} (fell back to heuristic)\x1b[0m`);
+  }
+
+  const suggestions = toSuggestionList(result);
+  const jsonPath = path.join(root, 'ai-analysis.json');
+  writeFileSync(jsonPath, JSON.stringify(result, null, 2) + '\n');
+  console.log(`\n  ${suggestions.length} suggested test(s) across ${result.componentCount} component(s).`);
+  console.log(`  → ${path.relative(process.cwd(), jsonPath)}`);
+  if (has('--md')) {
+    const mdPath = path.join(root, 'AI-SUGGESTIONS.md');
+    writeFileSync(mdPath, toMarkdown(result));
+    console.log(`  → ${path.relative(process.cwd(), mdPath)}`);
+  }
+  console.log('');
+}
+
 switch (cmd) {
   case 'scan':
   case 'report':
@@ -130,7 +201,14 @@ switch (cmd) {
   case 'dashboard':
     runDashboard();
     break;
+  case 'ai':
+  case 'analyze':
+    runAi().catch((err) => {
+      console.error(`\n  ai failed: ${err instanceof Error ? err.message : err}\n`);
+      process.exit(1);
+    });
+    break;
   default:
-    console.error(`Unknown command: ${cmd}\nUsage: ftap <scan|report|generate|dashboard> [path] [flags]`);
+    console.error(`Unknown command: ${cmd}\nUsage: ftap <scan|report|generate|dashboard|ai> [path] [flags]`);
     process.exit(1);
 }

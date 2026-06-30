@@ -30,6 +30,11 @@ storybook-static
 analysis.json
 report.html
 
+# AI analysis artifacts + cache
+ai-analysis.json
+AI-SUGGESTIONS.md
+.ftap/
+
 # Playwright E2E output
 /test-results/
 /playwright-report/

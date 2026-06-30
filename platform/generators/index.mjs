@@ -15,6 +15,11 @@ import { generateE2E } from './playwright-e2e.mjs';
 import { generateBdd, BDD_SUPPORT } from './cucumber-bdd.mjs';
 import { generateMswMocks } from './msw-mock.mjs';
 import { generateVisualSpec } from './visual-responsive.mjs';
+import { generateRoutingTest } from './routing.mjs';
+import { generateAuthFlowTest } from './auth-flow.mjs';
+import { generateTableTest } from './table.mjs';
+import { generatePerfTest } from './perf.mjs';
+import { generateSecurityTest } from './security.mjs';
 
 const rel = (root, p) => path.relative(root, p);
 
@@ -40,16 +45,16 @@ function writeOwned(target, content, { force }, log) {
   return 'created';
 }
 
-export function runGenerators(root, { stories, tests, e2e, bdd, api, visual, force, ignore = [] } = {}) {
+export function runGenerators(root, { stories, tests, e2e, bdd, api, visual, routing, auth, table, perf, security, force, ignore = [] } = {}) {
   const roots = defaultRoots(root);
   const components = findComponents(roots, { ignore });
   const log = [];
   const counts = { created: 0, refreshed: 0, preserved: 0, exists: 0, skipped: 0 };
   const bump = (r) => counts[r] !== undefined && counts[r]++;
 
-  // `--api` and `--visual` are PROJECT-level: they read the scanned analysis
-  // (api files / routes) rather than iterating components. Scan once, lazily.
-  const analysis = (api || visual) ? scan(root) : null;
+  // PROJECT-level targets read the scanned analysis (api files / routes / auth /
+  // security sinks) rather than iterating components. Scan once, lazily.
+  const analysis = (api || visual || routing || auth || security) ? scan(root) : null;
 
   for (const c of components) {
     if (stories) {
@@ -76,6 +81,17 @@ export function runGenerators(root, { stories, tests, e2e, bdd, api, visual, for
         counts.skipped++;
         log.push(`\x1b[90m–\x1b[0m skipped  bdd for <${c.name}/> (${f.skipped})`);
       }
+    }
+    // --table / --perf are component-level: only emit for matching components.
+    if (table) {
+      const f = generateTableTest(c);
+      if (f.filename) bump(writeOwned(path.join(c.dir, f.filename), f.content, { force }, log));
+      else { counts.skipped++; log.push(`\x1b[90m–\x1b[0m skipped  table for <${c.name}/> (${f.skipped})`); }
+    }
+    if (perf) {
+      const f = generatePerfTest(c);
+      if (f.filename) bump(writeOwned(path.join(c.dir, f.filename), f.content, { force }, log));
+      else { counts.skipped++; log.push(`\x1b[90m–\x1b[0m skipped  perf for <${c.name}/> (${f.skipped})`); }
     }
   }
 
@@ -104,6 +120,17 @@ export function runGenerators(root, { stories, tests, e2e, bdd, api, visual, for
       log.push(`\x1b[90m–\x1b[0m skipped  visual spec (${r.skipped})`);
     }
   }
+
+  // --routing / --auth / --security are PROJECT-level scaffolds (one file each).
+  const projectScaffold = (flag, gen, label) => {
+    if (!flag) return;
+    const r = gen(analysis);
+    if (r.filename) bump(writeOwned(path.join(root, r.filename), r.content, { force }, log));
+    else { counts.skipped++; log.push(`\x1b[90m–\x1b[0m skipped  ${label} (${r.skipped})`); }
+  };
+  projectScaffold(routing, generateRoutingTest, 'routing scaffold');
+  projectScaffold(auth, generateAuthFlowTest, 'auth-flow scaffold');
+  projectScaffold(security, generateSecurityTest, 'security scaffold');
 
   return { components: components.map((c) => c.name), log, counts };
 }

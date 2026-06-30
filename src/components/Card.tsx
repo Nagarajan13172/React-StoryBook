@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import './Card.css';
 
 export interface CardProps {
-  /** Card heading. Rendered as an <h3> so the card is navigable by screen readers. */
+  /** Card heading. Rendered as an <h2> so a card sits correctly under a page <h1>. */
   title?: string;
   /** Optional short description shown under the title. */
   description?: string;
@@ -19,7 +19,7 @@ export interface CardProps {
 export function Card({ title, description, children, footer }: CardProps) {
   return (
     <section className="ws-card">
-      {title && <h3 className="ws-card__title">{title}</h3>}
+      {title && <h2 className="ws-card__title">{title}</h2>}
       {description && <p className="ws-card__description">{description}</p>}
       {children && <div className="ws-card__body">{children}</div>}
       {footer && <div className="ws-card__footer">{footer}</div>}

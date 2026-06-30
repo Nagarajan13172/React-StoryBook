@@ -19,6 +19,7 @@
     "scan": "node platform/cli.mjs scan",
     "generate": "node platform/cli.mjs generate",
     "dashboard": "node platform/cli.mjs dashboard",
+    "ai": "node platform/cli.mjs ai",
     "test:platform": "node --test 'platform/__tests__/*.test.mjs'",
     "ftap:selftest": "node --test 'platform/__tests__/*.test.mjs'",
     "e2e": "playwright test --grep-invert @visual",
@@ -30,7 +31,8 @@
   },
   "dependencies": {
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.2.1",
@@ -43,6 +45,7 @@
     "@storybook/react-vite": "^10.4.6",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

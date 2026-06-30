@@ -1,16 +1,16 @@
-import { Button } from './components/Button';
-import { Card } from './components/Card';
-import { SignupCard } from './components/SignupCard';
-import './App.css';
+import { Button } from '../components/Button';
+import { Card } from '../components/Card';
+import { SignupCard } from '../components/SignupCard';
+import { ExternalLink } from '../components/ExternalLink';
 
 /**
- * Demo "website" for the component-testing workshop.
- * Everything you see here is built from the same components that are
- * developed and tested in Storybook (`npm run storybook` / `npm run test:stories`).
+ * Home page — the demo "website" for the component-testing workshop.
+ * Everything here is built from the same components developed and tested in
+ * Storybook (`npm run storybook` / `npm run test:stories`).
  */
-function App() {
+export function Home() {
   return (
-    <div className="app">
+    <>
       <header className="app__header">
         <h1 className="app__title">Component Testing Workshop</h1>
         <p className="app__subtitle">
@@ -45,12 +45,10 @@ function App() {
       </main>
 
       <footer className="app__footer">
-        <a href="https://storybook.js.org/docs/writing-tests" target="_blank" rel="noreferrer">
+        <ExternalLink href="https://storybook.js.org/docs/writing-tests">
           Storybook testing docs ↗
-        </a>
+        </ExternalLink>
       </footer>
-    </div>
+    </>
   );
 }
-
-export default App;

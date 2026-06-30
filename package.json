@@ -20,6 +20,7 @@
     "generate": "node platform/cli.mjs generate",
     "dashboard": "node platform/cli.mjs dashboard",
     "ai": "node platform/cli.mjs ai",
+    "ci:report": "node platform/cli.mjs ci",
     "test:platform": "node --test 'platform/__tests__/*.test.mjs'",
     "ftap:selftest": "node --test 'platform/__tests__/*.test.mjs'",
     "e2e": "playwright test --grep-invert @visual",

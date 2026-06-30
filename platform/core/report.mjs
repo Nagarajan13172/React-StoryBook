@@ -111,3 +111,65 @@ export function renderHtml(a) {
   <tbody>${gapRows || '<tr><td colspan="3">No gaps 🎉</td></tr>'}</tbody></table>
 </div></body></html>`;
 }
+
+// --- markdown report (Phase 7: CI step summary / PR-friendly) ----------------
+const SEV_ORDER = { high: 0, medium: 1, low: 2 };
+// Escape pipes + collapse newlines so a gap message is safe inside a md table cell.
+const mdCell = (s) => String(s).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
+
+function gapTable(gaps) {
+  if (!gaps.length) return 'No gaps 🎉';
+  const sorted = [...gaps].sort((a, b) => (SEV_ORDER[a.severity] ?? 3) - (SEV_ORDER[b.severity] ?? 3));
+  return [
+    '| Severity | Area | Recommendation |',
+    '| --- | --- | --- |',
+    ...sorted.map((g) => `| ${mdCell(g.severity)} | ${mdCell(g.area)} | ${mdCell(g.message)} |`),
+  ].join('\n');
+}
+
+/**
+ * Render a scan analysis as GitHub-flavoured markdown — the CI step-summary
+ * report. When `diff` (from ci.mjs `diffAnalyses`) is supplied, a "Changes vs
+ * base" section reports the coverage delta and the new/fixed gaps.
+ */
+export function renderMarkdown(a, { diff } = {}) {
+  const c = a.summary.components;
+  const out = [];
+  out.push('## 🧪 Frontend testing report');
+  out.push('');
+  out.push(`**${a.framework.name} · React ${a.framework.react || '?'} · ${a.framework.typescript ? 'TypeScript' : 'JavaScript'}**`);
+  out.push('');
+  out.push('| Metric | Value |');
+  out.push('| --- | --- |');
+  out.push(`| Component coverage | **${c.coveragePct}%** (${c.tested}/${c.total}) |`);
+  out.push(`| Untested components | ${c.untested} |`);
+  out.push(`| Hooks tested | ${a.summary.hooks.tested}/${a.summary.hooks.total} |`);
+  out.push(`| Gaps | ${a.gaps.length} |`);
+  out.push('');
+
+  if (diff) {
+    const arrow = diff.coverageDelta > 0 ? '▲' : diff.coverageDelta < 0 ? '▼' : '—';
+    const sign = diff.coverageDelta > 0 ? '+' : '';
+    out.push('### Changes vs base');
+    out.push(`- **Coverage:** ${diff.baseCoverage}% → ${c.coveragePct}% (${arrow} ${sign}${diff.coverageDelta}%)`);
+    out.push(`- **Gaps:** ${diff.gapDelta >= 0 ? '+' : ''}${diff.gapDelta} net (now ${a.gaps.length}) — ${diff.newGaps.length} new, ${diff.fixedGaps.length} fixed`);
+    if (diff.newGaps.length) {
+      out.push(`- 🆕 **New gaps (${diff.newGaps.length}):**`);
+      for (const g of diff.newGaps) out.push(`  - \`${g.severity}\` **${mdCell(g.area)}** — ${mdCell(g.message)}`);
+    }
+    if (diff.fixedGaps.length) {
+      out.push(`- ✅ **Fixed gaps (${diff.fixedGaps.length}):**`);
+      for (const g of diff.fixedGaps) out.push(`  - \`${g.severity}\` **${mdCell(g.area)}** — ${mdCell(g.message)}`);
+    }
+    if (!diff.newGaps.length && !diff.fixedGaps.length) out.push('- No gap changes vs base.');
+    out.push('');
+  }
+
+  out.push('### Testing stack');
+  out.push(Object.entries(a.stack).map(([k, v]) => `${v ? '✅' : '❌'} ${k}`).join(' · '));
+  out.push('');
+  out.push('### Gaps');
+  out.push(gapTable(a.gaps));
+  out.push('');
+  return out.join('\n');
+}

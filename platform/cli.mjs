@@ -19,13 +19,20 @@
 //                                          AI test-gap analysis per component
 //                                          (uses ANTHROPIC_API_KEY; heuristic fallback
 //                                           with no key or --no-ai)
+//   node platform/cli.mjs ci [path] [--baseline=FILE] [--min-coverage=N] [--max-gaps=N]
+//                            [--fail-on-new] [--md=FILE]
+//                                          CI report + coverage gate: writes report.md,
+//                                          appends to $GITHUB_STEP_SUMMARY, diffs against a
+//                                          baseline analysis.json, and exits non-zero when a
+//                                          threshold/regression gate is breached
 // ---------------------------------------------------------------------------
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scan } from './core/scan.mjs';
-import { renderHtml } from './core/report.mjs';
+import { renderHtml, renderMarkdown } from './core/report.mjs';
+import { diffAnalyses, evaluateGate } from './core/ci.mjs';
 import { runGenerators } from './generators/index.mjs';
 import { analyzeProject, toMarkdown, toSuggestionList } from './ai/analyze.mjs';
 
@@ -190,10 +197,71 @@ async function runAi() {
   console.log('');
 }
 
+function runCi() {
+  const head = scan(root);
+  head.scannedAt = new Date().toISOString(); // safe here: real Node process, not a workflow script
+  writeFileSync(path.join(root, 'analysis.json'), JSON.stringify(head, null, 2) + '\n');
+
+  // Optional diff against a base-branch analysis.json (graceful if unreadable).
+  let diff = null;
+  const baselinePath = opt('baseline');
+  if (baselinePath) {
+    try {
+      const base = JSON.parse(readFileSync(path.resolve(baselinePath), 'utf8'));
+      diff = diffAnalyses(base, head);
+    } catch (err) {
+      console.error(`  \x1b[33m! baseline ${baselinePath} unreadable (${err instanceof Error ? err.message : err}) — reporting without a diff\x1b[0m`);
+    }
+  }
+
+  // Markdown report → report.md (+ the Actions run summary when in CI).
+  const md = renderMarkdown(head, diff ? { diff } : {});
+  const mdPath = path.resolve(opt('md') || path.join(root, 'report.md'));
+  writeFileSync(mdPath, md + '\n');
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+
+  const c = head.summary.components;
+  console.log(`\n  \x1b[1mftap ci\x1b[0m — ${c.coveragePct}% coverage (${c.tested}/${c.total}) · ${head.gaps.length} gap(s)`);
+  if (diff) {
+    const d = diff.coverageDelta;
+    console.log(`  vs base: coverage ${d > 0 ? '+' : ''}${d}% · gaps ${diff.gapDelta >= 0 ? '+' : ''}${diff.gapDelta} (${diff.newGaps.length} new, ${diff.fixedGaps.length} fixed)`);
+  }
+  console.log(`  → ${path.relative(process.cwd(), mdPath)}`);
+
+  // Parse a numeric gate flag, erroring loudly (exit 2) on a typo so a malformed
+  // threshold can't silently disable the gate.
+  const numFlag = (key) => {
+    const raw = opt(key);
+    if (raw == null) return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) {
+      console.error(`\n  \x1b[31m✖ --${key} must be a number (got "${raw}").\x1b[0m\n`);
+      process.exit(2);
+    }
+    return n;
+  };
+
+  const gate = evaluateGate(head, diff, {
+    minCoverage: numFlag('min-coverage'),
+    maxGaps: numFlag('max-gaps'),
+    failOnNew: has('--fail-on-new'),
+  });
+  if (!gate.pass) {
+    console.error(`\n  \x1b[31m✖ coverage gate failed:\x1b[0m`);
+    for (const f of gate.failures) console.error(`    • ${f}`);
+    console.error('');
+    process.exit(1);
+  }
+  console.log(`  \x1b[32m✓ gate passed\x1b[0m\n`);
+}
+
 switch (cmd) {
   case 'scan':
   case 'report':
     runScan();
+    break;
+  case 'ci':
+    runCi();
     break;
   case 'generate':
     runGenerate();

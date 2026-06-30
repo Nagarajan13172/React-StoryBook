@@ -23,7 +23,7 @@ TextField, SignupCard) doubles as the platform's built-in "example project to sc
 | Interactive dashboard web app (`ftap dashboard`) | ✅ Phase 4 |
 | AI test-gap analysis (`ftap ai`, Claude API + heuristic) | ✅ Phase 5 |
 | Auth · routing · data-table · perf · security coverage | ✅ Phase 6 |
-| CI/CD reports (gap report + results as PR comments / artifacts) | 🔲 to build |
+| CI/CD reports — gap report to the run summary + coverage gate (`ftap ci`) | ✅ Phase 7 |
 
 ## Architecture
 
@@ -33,13 +33,14 @@ platform/
     scan.mjs      Scanner engine → structured analysis (framework, components +
                   role/security/memo signals, hooks, routes, API, state, auth,
                   tests, stories, stack, gaps)
-    report.mjs    analysis → static HTML coverage report
+    report.mjs    analysis → static HTML report + markdown report (CI summary)
+    ci.mjs        base↔head diff + coverage-gate logic                  (Phase 7)
   generators/     story / vitest / playwright / cucumber                (Phase 2)
                   msw / visual                                          (Phase 3)
                   routing / auth-flow / table / perf / security         (Phase 6)
   ai/             Claude-API analysis module + heuristic fallback       (Phase 5)
   dashboard/      interactive web UI (React + Vite)                     (Phase 4)
-  cli.mjs         `ftap scan | generate | report | dashboard | ai`
+  cli.mjs         `ftap scan | generate | report | dashboard | ai | ci`
 scripts/          existing story tooling (reused by the generator phase)
 src/              demo app — the example project the platform scans
   routes/         routed pages (Home/Products/Dashboard/Login/NotFound) (Phase 6)
@@ -241,10 +242,38 @@ src/              demo app — the example project the platform scans
     infer those. The dashboard surfaces the new gaps in its list but its inventory
     panel isn't yet extended with the auth/table/perf/security signals.
 
-- [ ] **Phase 7 — CI/CD reports** (feature #5)
-  Publish gap report + test results as CI artifacts / PR comments.
+- [x] **Phase 7 — CI/CD reports** (feature #5) — **closes the loop back into CI**
+  `ftap ci [path] [--baseline=FILE] [--min-coverage=N] [--max-gaps=N] [--fail-on-new]
+  [--md=FILE]` scans the project, renders a GitHub-flavoured **markdown gap report**
+  (coverage, stack badges, severity-sorted gaps), writes `report.md`, and **appends it to
+  `$GITHUB_STEP_SUMMARY`** so it shows up on every Actions run — no token, works on forks.
+  - **Coverage gate:** `evaluateGate` (`platform/core/ci.mjs`) fails the build (exit 1) when
+    coverage `< --min-coverage`, gaps `> --max-gaps`, or — with `--fail-on-new` — the change
+    is a net regression vs the base branch. No thresholds ⇒ report-only.
+  - **Base↔head diff:** `diffAnalyses` compares a base `analysis.json` to head and reports the
+    coverage delta + new/fixed gaps in a "Changes vs base" section. The gate uses gap *count* +
+    coverage delta (not message identity), so message churn can't fake a regression.
+  - **Workflow:** a dependency-free `report` job in `.github/workflows/storybook-tests.yml`
+    (no `npm ci` — the scanner only reads `package.json` + source) checks out with
+    `fetch-depth: 0`, scans the PR base via `git worktree` (tolerant of fork PRs with no base),
+    then runs `ftap ci --min-coverage=100 --max-gaps=0` (+ `--baseline … --fail-on-new` on PRs).
+  Verified: 81 platform self-tests ✓ (5 Phase-7) · `ftap ci` exercised end-to-end (clean pass,
+  gate failure on a seeded gap, base↔head diff, `$GITHUB_STEP_SUMMARY` append) · workflow YAML
+  parses · demo still scans **0 gaps / 18-18** and the existing suites stay green.
+
+  **Phase 7 — known limitations** (deferred): publishes to the Step Summary only (no PR
+  comment / artifacts — `report.md` is produced locally if a team wants to wire those up);
+  new/fixed gap *display* is message-level, so a gap whose message only changed can show as a
+  fixed+new pair (the gate is count/coverage based and unaffected); the diff needs the base ref
+  present (`fetch-depth: 0`) — fork PRs without it fall back to absolute-threshold gating.
 
 ---
+
+## Status: all phases shipped 🎉
+
+Phases 0–7 are complete — the platform scans a React/Next project, reports and scaffolds the
+missing tests across every spec area, surfaces it in a dashboard and AI analysis, and gates +
+reports coverage in CI. Each phase remains shippable on its own.
 
 ## Honest scope note
 

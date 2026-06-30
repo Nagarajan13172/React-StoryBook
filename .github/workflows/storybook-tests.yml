@@ -58,6 +58,41 @@ jobs:
           out=$(npm run --silent bdd:dry 2>&1); echo "$out"
           echo "$out" | grep -qiE '[0-9]+ (undefined|ambiguous)' && { echo 'FAIL: unbound steps'; exit 1; } || echo 'OK: all steps bound'
 
+  # Coverage gap report + gate (Phase 7). Publishes the markdown report to the
+  # Actions run summary and fails the build on a coverage regression. `ftap scan`
+  # is dependency-free, so this job needs no `npm ci` / browser install.
+  report:
+    name: Testing gap report + gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base ref so PRs can diff head vs base
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Scan the PR's base commit with THIS branch's scanner, so the report can
+      # diff head vs base. Tolerant of a missing base (e.g. some fork PRs).
+      - name: Scan base branch (for the PR diff)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add ../base "$BASE_SHA"
+          node platform/cli.mjs scan ../base
+
+      # Report → $GITHUB_STEP_SUMMARY (set automatically by Actions) and gate the
+      # build at the current bar. On PRs, also fail on a net regression vs base.
+      - name: Report + coverage gate
+        env:
+          DIFF_ARGS: ${{ github.event_name == 'pull_request' && '--baseline=../base/analysis.json --fail-on-new' || '' }}
+        run: node platform/cli.mjs ci --min-coverage=100 --max-gaps=0 $DIFF_ARGS
+
   # Visual regression is a SEPARATE, manually-triggered job: it regenerates the
   # Linux baselines and uploads them as an artifact (committed baselines are
   # darwin-suffixed, so a Linux PR gate would always "fail"). Promote a baseline

@@ -29,6 +29,7 @@ storybook-static
 # Frontend testing platform — generated scan artifacts
 analysis.json
 report.html
+report.md
 
 # AI analysis artifacts + cache
 ai-analysis.json
